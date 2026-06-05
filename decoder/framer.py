@@ -16,6 +16,17 @@ XMODEM_ACK = 0x06
 XMODEM_NAK = 0x15
 XMODEM_CAN = 0x18
 
+def calc_xmodem_crc(data):
+    crc = 0
+    for byte in data:
+        crc ^= byte << 8
+        for _ in range(8):
+            if crc & 0x8000:
+                crc = ((crc << 1) ^ 0x1021) & 0xFFFF
+            else:
+                crc = (crc << 1) & 0xFFFF
+    return crc.to_bytes(2, "big")
+
 class Framer:
     def __init__(self, channel, on_drop=None, on_xmodem_block=None):
         self.channel = channel
@@ -123,9 +134,20 @@ class Framer:
                  
                  self.last_xmodem_seq = seq
                  
+                 block_payload = bytes(self.acc[overhead:overhead+block_len])
+                 block_crc = bytes(self.acc[overhead+block_len:total_len])
+                 calc_block_crc = calc_xmodem_crc(block_payload)
+                 if block_crc != calc_block_crc:
+                     self.on_drop(
+                         self.acc[:1],
+                         "bad xmodem crc ({} != {})".format(block_crc.hex(), calc_block_crc.hex()),
+                     )
+                     self.acc = self.acc[1:]
+                     continue
+
                  # Consume
                  if self.on_xmodem_block_cb:
-                     self.on_xmodem_block_cb(self.channel, seq, block_len)
+                     self.on_xmodem_block_cb(self.channel, seq, block_len, block_payload, block_crc, xm_type)
                  
                  self.acc = self.acc[total_len:]
                  continue

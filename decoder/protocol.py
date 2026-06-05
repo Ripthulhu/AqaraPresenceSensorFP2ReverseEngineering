@@ -57,13 +57,100 @@ sub_id_map = {
     0x172: "dwell_time_enable",
     0x173: "walking_distance_enable",
     0x174: "walking_distance_all",
+    0x175: "unknown_0175",
     0x176: "sleep_event",
+    0x177: "sleep_event_descriptor",
+    0x178: "sleep_bed_height",
+    0x179: "overhead_height",
+    0x180: "fall_delay_time",
     0x201: "debug_log",
     0x202: "aux_data",
 }
 
 def format_hex(data):
     return " ".join("{:02x}".format(c) for c in data)
+
+def format_ascii(data):
+    return "".join(chr(c) if 32 <= c < 127 else "." for c in data)
+
+def strip_nul_text(text):
+    return text.rstrip("\x00")
+
+def decode_blob(payload_data):
+    if len(payload_data) < 2:
+        return None, b"", "missing blob length"
+
+    blob_len = payload_data[0] << 8 | payload_data[1]
+    blob = bytes(payload_data[2:])
+    if len(blob) != blob_len:
+        return blob_len, blob, f"length mismatch: declared={blob_len} actual={len(blob)}"
+
+    return blob_len, blob, None
+
+def u16be(data):
+    return struct.unpack(">H", data[:2])[0]
+
+def u32be(data):
+    return struct.unpack(">I", data[:4])[0]
+
+def decode_sleep_data(blob):
+    lines = []
+
+    if len(blob) % 12 != 0:
+        lines.append(f"  Sleep payload is {len(blob)} bytes; expected 12-byte records")
+        lines.append(f"  ASCII: {format_ascii(blob)}")
+        return lines
+
+    for idx in range(len(blob) // 12):
+        rec = blob[idx * 12:(idx + 1) * 12]
+        target_id = rec[0]
+        # Firmware strings expose tid/count/motion/stage. The last three bytes
+        # match those fields in observed captures; the middle bytes still need
+        # function-level confirmation in the radar MSS binary.
+        count = rec[9]
+        motion = rec[10]
+        stage = rec[11]
+        middle = rec[1:9]
+        lines.append(
+            f"  Sleep[{idx}]: target_id={target_id} count={count} motion={motion} "
+            f"stage={stage} unknown={format_hex(middle)}"
+        )
+
+    return lines
+
+def decode_people_counting(blob):
+    lines = []
+
+    if len(blob) % 7 != 0:
+        lines.append(f"  People-counting payload is {len(blob)} bytes; expected 7-byte records")
+        lines.append(f"  ASCII: {format_ascii(blob)}")
+        return lines
+
+    for idx in range(len(blob) // 7):
+        rec = blob[idx * 7:(idx + 1) * 7]
+        zone_or_target = rec[0]
+        val_a = u16be(rec[1:3])
+        val_b = u16be(rec[3:5])
+        val_c = u16be(rec[5:7])
+        lines.append(
+            f"  PeopleCounting[{idx}]: id={zone_or_target} value_a={val_a} "
+            f"value_b={val_b} value_c={val_c}"
+        )
+
+    return lines
+
+def decode_target_posture(payload_data):
+    if len(payload_data) < 2:
+        return None
+
+    zone_or_target = payload_data[0]
+    posture = payload_data[1]
+    return f"Zone/Target:{zone_or_target} Posture:{posture}"
+
+def decode_uint32_pair(raw_val, high_name, low_name):
+    high = (raw_val >> 16) & 0xFFFF
+    low = raw_val & 0xFFFF
+    return f"{raw_val} (0x{raw_val:08x}) [{high_name}:{high} {low_name}:{low}]"
 
 def decode_packet(channel, packet, exclude_names=None):
     output_lines = []
@@ -112,17 +199,25 @@ def decode_packet(channel, packet, exclude_names=None):
             val_str = f"BOOL: {'TRUE' if raw_val else 'FALSE'}"
             decoded = True
     elif attr_byte == 0x05: # BLOB1
-        if len(payload_data) >= 2:
-            blob_len = payload_data[0] << 8 | payload_data[1]
+        blob_len, blob, blob_error = decode_blob(payload_data)
+        if blob_len is not None:
             try:
-                val_str = f"STR[{blob_len}]: {payload_data[2:].decode('ascii')}"
-            except:
-                 val_str = f"STR[{blob_len}]: (Binary) {format_hex(payload_data[2:])}"
+                text = strip_nul_text(blob.decode("ascii"))
+                if sub_name == "debug_log":
+                    val_str = f"DEBUG[{blob_len}]: {text}"
+                else:
+                    val_str = f"STR[{blob_len}]: {text}"
+            except UnicodeDecodeError:
+                val_str = f"STR[{blob_len}]: (Binary) {format_hex(blob)}"
+            if blob_error:
+                val_str += f" [{blob_error}]"
             decoded = True
     elif attr_byte == 0x06: # BLOB2
-        if len(payload_data) >= 2:
-            blob_len = payload_data[0] << 8 | payload_data[1]
-            val_str = f"BLOB[{blob_len}]: {format_hex(payload_data[2:])}"
+        blob_len, blob, blob_error = decode_blob(payload_data)
+        if blob_len is not None:
+            val_str = f"BLOB[{blob_len}]: {format_hex(blob)}"
+            if blob_error:
+                val_str += f" [{blob_error}]"
             decoded = True
             
     if not decoded:
@@ -146,8 +241,9 @@ def decode_packet(channel, packet, exclude_names=None):
     
     # Custom decoders for specific messages
     if packet.typ == 5 and sub_name == "location_track_data":
-        sub_data_len = packet.data[3] << 8 | packet.data[4]
-        sub_data = packet.data[5:5+sub_data_len]
+        blob_len, sub_data, blob_error = decode_blob(payload_data)
+        if blob_error:
+            complex_output.append(f"  {blob_error}")
         if len(sub_data) > 0:
             count = sub_data[0]
             complex_output.append(f"  Target Count: {count}")
@@ -156,6 +252,26 @@ def decode_packet(channel, packet, exclude_names=None):
                 if len(item_data) == 14:
                     tid, x, y, z, velocity, snr, classifier, posture, active = struct.unpack(">BhhhhHBBB", item_data)
                     complex_output.append(f"    #{tid}: [{x}, {y}, {z}] Velocity:{velocity} SNR:{snr} Class:{classifier} Posture:{posture} Active:{active}")
+
+    elif sub_name == "sleep_data" and attr_byte == 0x06:
+        blob_len, blob, blob_error = decode_blob(payload_data)
+        if blob_error:
+            complex_output.append(f"  {blob_error}")
+        complex_output.extend(decode_sleep_data(blob))
+
+    elif sub_name == "people_counting" and attr_byte == 0x06:
+        blob_len, blob, blob_error = decode_blob(payload_data)
+        if blob_error:
+            complex_output.append(f"  {blob_error}")
+        complex_output.extend(decode_people_counting(blob))
+
+    elif sub_name == "thermodynamic_chart_data" and attr_byte == 0x06:
+        blob_len, blob, blob_error = decode_blob(payload_data)
+        if blob_error:
+            complex_output.append(f"  {blob_error}")
+        complex_output.append(f"  Thermodynamic bytes: {len(blob)}")
+        if blob:
+            complex_output.append(f"  Preview ASCII: {format_ascii(blob[:64])}")
 
     elif sub_name in ["detect_zone_motion", "detect_zone_presence"]:
         # Structure seems to be [ZoneID] [State]
@@ -230,7 +346,11 @@ def decode_packet(channel, packet, exclude_names=None):
         36: "Stairs"
     }
     lr_reverse_map = {0: "Consistent", 1: "Opposite"}
-    wall_pos_map = {1: "Wall"}
+    wall_pos_map = {1: "Wall", 2: "Left Corner", 3: "Right Corner"}
+    work_mode_map = {3: "presence", 9: "sleep"}
+    sleep_state_map = {0: "inactive/out", 1: "in_bed_or_active"}
+    sleep_presence_map = {0: "absent", 1: "present"}
+    sleep_inout_map = {0: "out", 1: "in"}
 
     if packet.typ != 3:
         if sub_name == "detect_zone_sensitivity":
@@ -260,10 +380,44 @@ def decode_packet(channel, packet, exclude_names=None):
         elif sub_name == "left_right_reverse":
             if 'raw_val' in locals() and isinstance(raw_val, int):
                 val_str += f" [{lr_reverse_map.get(raw_val, 'Unknown')}]"
+
+        elif sub_name == "work_mode":
+            if 'raw_val' in locals() and isinstance(raw_val, int):
+                val_str += f" [{work_mode_map.get(raw_val, 'Unknown')}]"
                 
         elif sub_name == "wall_corner_mount_position":
              if 'raw_val' in locals() and isinstance(raw_val, int):
                 val_str += f" [{wall_pos_map.get(raw_val, 'Unknown')}]"
+
+        elif sub_name == "sleep_zone_size":
+            if 'raw_val' in locals() and isinstance(raw_val, int):
+                val_str = decode_uint32_pair(raw_val, "width", "length")
+
+        elif sub_name in ["realtime_people_number", "ontime_people_number", "realtime_people_counting"]:
+            if 'raw_val' in locals() and isinstance(raw_val, int):
+                label = sub_name.replace("_", " ")
+                val_str += f" [{label}]"
+
+        elif sub_name == "walking_distance_all":
+            if 'raw_val' in locals() and isinstance(raw_val, int):
+                val_str += " [accumulated distance]"
+
+        elif sub_name == "sleep_state":
+            if 'raw_val' in locals() and isinstance(raw_val, int):
+                val_str += f" [{sleep_state_map.get(raw_val, 'Unknown')}]"
+
+        elif sub_name == "sleep_presence":
+            if 'raw_val' in locals() and isinstance(raw_val, int):
+                val_str += f" [{sleep_presence_map.get(raw_val, 'Unknown')}]"
+
+        elif sub_name == "sleep_inout_state":
+            if 'raw_val' in locals() and isinstance(raw_val, int):
+                val_str += f" [{sleep_inout_map.get(raw_val, 'Unknown')}]"
+
+        elif sub_name == "target_posture":
+            decoded_posture = decode_target_posture(payload_data)
+            if decoded_posture:
+                val_str += f" [{decoded_posture}]"
 
     if packet.typ == 3:
         status = (packet.data[2] << 8) | packet.data[3] if len(packet.data) >= 4 else 0

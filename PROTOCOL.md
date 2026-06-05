@@ -9,7 +9,7 @@
 ---
 ## 1. Physical Layer
 *   **Interface**: UART (Universal Asynchronous Receiver-Transmitter)
-*   **Baud Rate**: *Unknown* (Likely 115200 or higher based on payload volume)
+*   **Baud Rate**: `890000` [CERTAIN]. This is used by the ESPHome component config and the Glasgow bidirectional sniffer setup.
 *   **Connection**:
     *   **Channel 0 (ESP -> Radar)**: Commands (Type 2/4) and ACKs (Type 3). Master/Host role.
     *   **Channel 1 (Radar -> ESP)**: Responses (Type 1), ACKs (Type 3), and asynchronous Reports (Type 5). Slave/Module role.
@@ -83,6 +83,72 @@ In specific cases (e.g., `device_direction` 0x0143, `angle_sensor_data` 0x0120),
 *   **Query**: Radar sends `OpCode 0x01` (Response) with `Length=2` (Payload contains ONLY the 2-byte SubID).
 *   **Response**: ESP responds with `OpCode 0x04` (Read) containing the 1-byte value (Total Len=3).
 *   *Note*: This reverses the standard roles. Normally 0x04 is a Request and 0x01 is a Response.
+
+### 2.3 Aqara App Trait Layer **[PARTIAL]**
+The Aqara app stores FP2 state in a Matter-like endpoint/function/trait cache. These are app/cloud resource descriptors, not the radar UART `SubID` values, but they are useful for correlating app controls with ESP32 `cloud_*` handlers.
+
+Observed path format:
+
+```
+<endpoint>.<functionId>.<traitId>
+```
+
+Live pairing cache for `lumi.motion.agl001`:
+
+| Endpoint | App name | Path examples | Resource id(s) | Meaning |
+| :--- | :--- | :--- | :--- | :--- |
+| `0` | Root device | `0.129.33013` | `14.49.85` | Dynamic endpoint array. Observed value: `[2,4,102,202,101,203]`. |
+| `2` | Occupancy Sensor | `2.160.33000` | `3.51.85` | Whole-device occupancy. |
+| `4` | Illuminance | `4.154.32989` | `0.4.85` | Current illuminance in lux. |
+| `101` | Detection Zone 1 | `101.160.33000` | `3.1.85` | Zone 1 occupancy. |
+| `102` | Detection Zone 2 | `102.160.33000` | `3.2.85` | Zone 2 occupancy. |
+| `103` | Detection Zone 3 | `103.160.33000` | `3.3.85` | Cached zone 3 occupancy; not active in the observed dynamic endpoint array. |
+
+Live H5 push resources seen in Aqara Home logcat:
+
+| Resource id | App bridge event | Value shape | Meaning |
+| :--- | :--- | :--- | :--- |
+| `4.22.700` | `handleWSPushPositionData` | 20-slot JSON target array with `rangeId`, `x`, `y`, `targetType`, `id`, and `state` | App/cloud live FP2 position stream. This is the app-side counterpart to the live target view; exact coordinate conversion from UART `0x0117` still needs a simultaneous UART/app capture. |
+| `13.27.85` | `handleWSPushPositionData` | Scalar in the first live-router capture | Role unknown; observed values were `6` and `7` with `source` containing `0.trg=0`. |
+
+The app detail view also labels several resources:
+
+| Resource id | App label / role |
+| :--- | :--- |
+| `14.49.85` | Detection Mode and mode-dependent endpoint/UI gating; ESP32 direct dispatch maps it to `work_mode` (`0x0116`). |
+| `14.30.85` | Fall Detection Sensitivity; ESP32 direct dispatch maps it to `fall_sens` (`0x0123`). |
+| `14.1.85` | Sleep Monitoring Sensitivity in the app view; ESP32 direct dispatch maps the same resource to `presence_det_sens` (`0x0111`). |
+| `4.73.85` | Homepage View Display. |
+| `4.72.85` | AI Person Detection; ESP32 direct dispatch maps it to `tgt_type_en` (`0x0163`). |
+| `14.59.85` | App labels this as fall detection delay, while the ESP32 descriptor table maps it to `overhead_height` (`0x0179`). |
+| `4.23.85` | Turn Off Indicator Light. |
+| `8.0.2207` | Indicator-light time period. |
+| `8.0.2096` | Identify / Find device. |
+
+See `APP_LIVE_CAPTURE_FINDINGS_2026_06_05.md` for the full live capture notes and open conflicts with earlier candidate cloud-resource mappings.
+
+### 2.4 FP2 Cloud TCP Layer **[PARTIAL]**
+
+Router capture shows the FP2 maintaining binary TCP sessions to `43.157.55.49:11111`. This is a separate cloud protocol layer, not the ESP32-to-radar UART protocol.
+
+Observed readable topic strings:
+
+| Topic | Direction | Role inferred from capture |
+| :--- | :--- | :--- |
+| `lumi/func/res/report` | FP2 -> cloud | Frequent functional/resource reports. |
+| `lumi/res/report/attr` | FP2 -> cloud | Attribute reports. |
+| `lumi/res/report/examination` | FP2 -> cloud | Device report path seen during page-open capture. |
+| `lumi/central/active/inquiry` | FP2 -> cloud | Active/inquiry path. |
+| `lumi/dev/heartbeat` | FP2 -> cloud | Device heartbeat. |
+| `lumi/gw/res/write` | Cloud -> FP2 | Cloud-initiated write path, likely app setting changes after server mediation. |
+| `lumi/gw/res/read` | Cloud -> FP2 | Cloud-initiated read path. |
+
+Payload shape lead:
+
+* First two payload bytes are a big-endian length equal to `tcp.len - 2` in 175/178 data-bearing rows from the first router capture.
+* Common bytes immediately after the length: `48 01 00 00`, `68 45 00 00`, `48 02 ff ff`, and `68 45 ff ff`.
+* FP2-to-cloud topic paths are readable slash strings. Cloud-to-FP2 paths were observed as compact segmented strings, e.g. `lumi` + length-prefixed `gw`, `res`, `write`, normalized by `tools/fp2_extract_cloud_topics.py`.
+* The remaining payload body appears encrypted or binary-packed; treat topic/header extraction as a correlation aid, not as a full decoder yet.
 
 ## 4. Low-Level Transport
 
@@ -189,17 +255,18 @@ Inside the BLOB:
 
 *Note: All multi-byte fields use Big Endian (Network Byte Order) encoding.*
 
+App correlation note: Aqara Home live-view logcat exposes app/cloud resource `4.22.700` as a fixed 20-slot target array with `rangeId`, `x`, `y`, `targetType`, `id`, and `state`. In the 2026-06-05 router capture, target ids `0` and `3` were active with app-coordinate ranges `x=165..297, y=129..143` and `x=120..286, y=123..157`. These app coordinates are not yet proven to be the raw `0x0117` coordinates; capture `0x0117` UART and app logcat at the same time before defining a conversion.
+
 #### 4.2.5 Sleep Data (0x0159) **[VERIFIED]**
-The payload contains sleep tracking information per zone.
-*   **Item Count**: `u8` (Usually 1)
-*   **Items**: Array of 12-byte structures.
+The payload contains sleep tracking information per target/zone. Captures show 12-byte records. Firmware strings from the radar MSS image expose the logical fields `tid`, `count`, `motion`, and `stage`; the internal processing window near the `SleepData:` and `sleep tid:%d, count:%d, motion:%d, stage:%d` strings also shows heart/breath counters (`HR/HC/BR/BC`). The exact packer for the UART `0x0159` record is still under investigation.
 
 | Offset | Field | Type | Description |
 | :--- | :--- | :--- | :--- |
 | 0 | `TargetID` | `u8` | Tracked Target ID |
-| 1 | `ZoneID` | `u8` | Zone ID |
-| 2 | `Presence` | `u8` | Presence/Occupancy state? |
-| 3-11 | `Unknown`| `u8[9]` | Vital signs or Sleep Stage data (Heart rate, Breath rate, etc.) |
+| 1-8 | `Unknown`| `u8[8]` | Candidate vital/signature fields; needs function-level confirmation |
+| 9 | `Count` | `u8` | Candidate mapping to radar log field |
+| 10 | `Motion` | `u8` | Candidate mapping to radar log field |
+| 11 | `Stage` | `u8` | Candidate mapping to radar log field |
 
 ### 4.2.6 Orientation States (Logic Map)
 
@@ -339,6 +406,9 @@ The following table is derived from the firmware's `radar_attribute_table` and `
 | `0x0169` | `sleep_zn_size` | `UINT32` | RW | Sleep Zone Size (Hi16=W, Lo16=L) |
 | `0x0171` | `sleep_inout` | `UINT8` | Rep| Sleep In/Out State |
 | `0x0176` | `sleep_event` | `UINT8` | Rep| Sleep Event Trigger |
+| `0x0177` | `sleep_event_descriptor` | `UINT16/cloud, likely UINT8 radar write` | ? | Stock ESP32 descriptor resource `1.10.85`, handler hint `cloud_sleep_event`; handler logs `sleep_event` and calls the radar write helper with `a10=1`. Live UART validation needed. |
+| `0x0178` | `sleep_bed_height` | `UINT16` | RW? | Stock ESP32 descriptor resource `1.11.85`, handler hint `cloud_sleep_bed_height`; handler stores a 16-bit value and calls the radar write helper with `a10=2`. |
+| `0x0179` | `overhead_height` | `UINT16` | RW? | Stock ESP32 descriptor resource `14.59.85`, handler hint `cloud_overhead_height`; handler stores a 16-bit value and calls the radar write helper with `a10=2`. Conflicts with app UI label "fall detection delay". |
 | `0x0167` | `sleep_presence`| `UINT8` | Rep| Sleep Presence |
 | `0x0154` | `target_posture`| `UINT16` | Rep| Target Posture Data |
 
@@ -357,6 +427,8 @@ The following table is derived from the firmware's `radar_attribute_table` and `
 | `0x0172` | `dwell_time_en` | `BOOL` | RW | Dwell Time Enable |
 | `0x0173` | `walk_dist_en` | `BOOL` | RW | Walking Distance Enable "Advanced Functions" "Accumulated travel distance" "The cumulative traveled distance function is suitable for single-person scenarios. By tracking the target trajectory in real time and counting daily travelled distance of the target in the entire area, it can reflect daily activities of the single-person target. It is recommended to enable scenarios such as elderly care and health care" |
 | `0x0174` | `walk_dist_all` | `UINT32` | Rep| Walking Dist Total |
+| `0x0175` | `unknown_0175` | `UINT16/cloud, likely UINT8 radar write` | ? | Stock ESP32 descriptor resource `0.121.85`; handler-summary string is `sleep_inout_state` and the common radar write call uses `a10=1`, but descriptor callback alignment is uncertain here. |
+| `0x0180` | `fall_delay_time` | `BLOB2/cloud, likely UINT16 radar write` | RW? | Stock ESP32 descriptor resource `4.41.705`, handler hint `cloud_fall_delay_time`; handler extracts/logs a value, stores it as 16-bit, and calls the radar write helper with `a10=2`. Live capture still needed before final UART type naming. |
 
 ## 7. Reverse Engineering Focus
 
@@ -383,4 +455,5 @@ To achieve full control, the following areas require further reverse engineering
 *   **Special Data Handling**:
     *   `sleep_zone_size` (`0x0169`): The `UINT32` value is split. High 16 bits = `bedWidth`, Low 16 bits = `bedLength`.
     *   `zone_people_number` (ID Unknown, inferred): Value `0xZZNN` -> `ZZ`=ZoneID, `NN`=Count.
+    *   Stock ESP32 descriptor records add leads for `0x0175`-`0x0180`. Treat `0x0175`, `0x0177`, and `0x0180` as descriptor-confirmed but live-payload-unconfirmed until app-toggle or radar UART captures prove the final wire format.
 

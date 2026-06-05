@@ -8,11 +8,21 @@ The IWR communicates with the ESP over the UART link. This is the primary connec
 
 See [PROTOCOL.md](PROTOCOL.md) for a description of the protocol over the UART link.
 
+Additional notes from stock firmware/app work:
+
+* [FIRMWARE_RE_FINDINGS_2026_06_04.md](FIRMWARE_RE_FINDINGS_2026_06_04.md) - ESP32 flash dump, radar firmware, and stock patch findings.
+* [APP_LIVE_CAPTURE_FINDINGS_2026_06_05.md](APP_LIVE_CAPTURE_FINDINGS_2026_06_05.md) - Aqara app live-pairing endpoint/resource findings.
+
 ## Scripts
 
 This repo contains a few useful scripts:
 * `sniff_uart_bidir.py` - Uses a `glasgow` to sniff bidirectional uart communication between the ESP32 and IWR (Radar) chips.
 * `test_decode.py` - Script which implements a decoder for `PROTOCOL.md`, decodes files with sniffed protocol dumps.
+* `tools/fp2_extract_cloud_tables.py` - Extracts stock ESP32 cloud resource -> radar SubID dispatch/descriptor tables from an Aqara app image. Use `--all-descriptors` for the full 50-row descriptor scan.
+* `tools/fp2_analyze_write_handlers.py` - Correlates descriptor rows with nearby ESP32 write-handler strings, stores, and calls to the common radar write helper.
+* `tools/fp2_mss_report_call_summary.py` - Summarizes TI MSS Thumb calls into the radar UART report helper, including SubID immediates and nearby format strings.
+* `tools/fp2_extract_app_position_pushes.py` - Decodes Aqara Home logcat `handleWSPushPositionData` H5 bridge pushes, including the live `4.22.700` target array.
+* `tools/fp2_extract_cloud_topics.py` - Summarizes readable `lumi/...` topic strings and outer length/header hints from FP2 TCP payload TSV exported by tshark.
 
 uv run --project decoder python -m decoder decode <filename> --exclude location_track_data,radar_sw_version
 
