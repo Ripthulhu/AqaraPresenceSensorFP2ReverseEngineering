@@ -157,6 +157,34 @@ Additional UART-console experiments:
 - The app entrypoint already contains ROM `ets_printf` boot logs gated by a variable initialized to `3` at vaddr `0x3ffb016c`, including strings such as `Unicore app`, `Pro cpu up.`, and `Single core mode`. Because those stock boot logs are already eligible to run yet remain invisible, UART0 console output appears disabled by output routing/strapping or by the exposed wiring, not merely by log-level gates.
 - Practical implication: for stock-firmware reverse engineering, the exposed COM5 UART0 path is reliable for ROM download/flashing but is not currently a useful runtime text console. The next useful runtime visibility paths are app/cloud pairing, HomeKit/Aqara traffic, or attaching a second sniffer to the radar UART pins (`GPIO19` TX, `GPIO18` RX, `890000` baud).
 
+## Stock Radar MSS Debug Patch Workbench
+
+`tools/fp2_radar_patch_workbench.py` patches the TI MSS RPRC payload inside the stock `mcu_ota` radar appimage. The first instrumentation variant is `printf-to-debug-forced`, intended to expose the radar firmware's existing debug prints as normal `0x0201 debug_log` report frames on the ESP32<->radar UART rather than on the exposed ESP32 UART0 console.
+
+Patch target:
+
+- Source RPRC: `dumps/extracted/mcu_ota_carved/appimage_4_mss_core_0x35510000_off_0x1a0080_len_0x33668.rprc`.
+- Source SHA-256: `c205f7e6a10179a3125e8b1e1dfb768e1a7a2126d5eedd06b6d40b7f23996351`.
+- Active appimage 4 MSS RPRC flash offset if written through the ESP32 `mcu_ota` partition: `0x5d3080` (`0x433000 + 0x1a0080`).
+
+Patch bytes:
+
+| Patch | MSS VAddr | RPRC offset | Before | After | Effect |
+| --- | ---: | ---: | --- | --- | --- |
+| `mss_printf_to_debug_log_report` | `0x00029360` | `0x292e8` | `0f b4 42 f6` | `02 f0 1a bb` | Replaces the broad printf-like MSS logger with a Thumb-2 branch to the firmware's own varargs `0x0201 debug_log` reporter at `0x0002b998`. |
+| `mss_debug_log_runtime_gate_nop` | `0x0002b9aa` | `0x2b932` | `a8 b9` | `00 bf` | NOPs the wrapper's runtime skip gate so formatted debug strings are sent even when the stock debug flag would suppress them. |
+
+Generated artifacts:
+
+- Patched RPRC: `artifacts/stock_patch/appimage_4_mss_printf_to_debug_forced.rprc`, SHA-256 `05b1e7e80ed697f3d0181e5aa034a0b57e58c15af37b7ca5b9a4e39456cb125f`.
+- Experimental patched `mcu_ota` partition: `artifacts/stock_patch/mcu_ota_0x433000_appimage4_mss_printf_to_debug_forced.bin`, SHA-256 `241bfda1dc0b47ac99a28ac8dfe30ef6dd4d4b049d574061e35ef3ed0c2251ea`.
+- Patch report: `artifacts/stock_patch/fp2_radar_patch_printf_to_debug_forced.md`.
+
+Important flashing caveat:
+
+- The `MSTR` per-core metadata/header words are preserved in the generated full `mcu_ota` artifact. Current tests show those words are not plain CRC32, MD5/SHA prefixes, or common CRC64 variants. Treat the full partition image as experimental until the TI metadata algorithm or loader behavior is confirmed.
+- If testing the patch, sniff the radar UART (`GPIO19`/`GPIO18`, `890000` baud) and decode `0x0201 debug_log` frames. COM5/UART0 should still be treated as download/recovery only.
+
 ## Current Decoder Implications
 
 - `sleep_data` (`0x0159`) records are 12 bytes in observed captures.

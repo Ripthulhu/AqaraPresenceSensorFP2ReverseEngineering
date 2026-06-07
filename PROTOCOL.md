@@ -376,7 +376,7 @@ The following table is derived from the firmware's `radar_attribute_table` and `
 | `0x0103` | `motion_det` | `UINT8` | RW | Motion Detection Enable (1=On, 0=Off) |
 | `0x0104` | `presence_det` | `UINT8` | RW | Presence Detection Enable (1=On, 0=Off) |
 | `0x0128` | `temperature` | `UINT16` | R | Chip Temperature |
-| `0x0201` | `debug_log` | `BLOB1` | Rep| Debug Log Data |
+| `0x0201` | `debug_log` | `BLOB1` | Rep| Debug Log Data. The stock radar MSS image already has a varargs wrapper at `0x0002b998` that formats strings and sends this report; the `printf-to-debug-forced` stock patch redirects the broad MSS logger at `0x00029360` into that wrapper. |
 
 ### 6.2 Mode Configuration
 | SubID | Name | Type | RW | Description |
