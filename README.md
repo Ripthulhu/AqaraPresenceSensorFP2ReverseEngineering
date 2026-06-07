@@ -22,6 +22,7 @@ This repo contains a few useful scripts:
 * `tools/fp2_extract_cloud_tables.py` - Extracts stock ESP32 cloud resource -> radar SubID dispatch/descriptor tables from an Aqara app image. Use `--all-descriptors` for the full 50-row descriptor scan.
 * `tools/fp2_analyze_write_handlers.py` - Correlates descriptor rows with nearby ESP32 write-handler strings, stores, and calls to the common radar write helper.
 * `tools/fp2_mss_report_call_summary.py` - Summarizes TI MSS Thumb calls into the radar UART report helper, including SubID immediates and nearby format strings.
+* `tools/fp2_mss_sleep_trace_summary.py` - Summarizes MSS sleep/tracker string xrefs, the `SleepData:` local record builder, and the rolling sleep state-machine stores around `0x13654`.
 * `tools/fp2_extract_app_position_pushes.py` - Decodes Aqara Home logcat `handleWSPushPositionData` H5 bridge pushes, including the live `4.22.700` target array.
 * `tools/fp2_extract_cloud_topics.py` - Summarizes readable `lumi/...` topic strings and outer length/header hints from FP2 TCP payload TSV exported by tshark.
 

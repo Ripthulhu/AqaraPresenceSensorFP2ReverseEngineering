@@ -43,6 +43,16 @@ MSS report-helper anchors:
 - Confirmed simple report wrappers include `sleep_report_enable` (`0x0156`, call `0x0002c52a`), `sleep_presence` (`0x0167`, call `0x0002c9c8`), `sleep_event` (`0x0176`, call `0x0002d036`), `sleep_state` (`0x0161`, call `0x0002d074`), and `sleep_inout_state` (`0x0171`, call `0x0002dfdc`).
 - The 12-byte `sleep_data` (`0x0159`) report does not appear to use that simple helper path directly. Its packer still needs tracing, likely through the larger sleep-processing/send code around the `SleepData:` and `sleep tid:%d, count:%d, motion:%d, stage:%d` strings.
 
+Sleep/tracker static follow-up on 2026-06-07:
+
+- `tools/fp2_mss_sleep_trace_summary.py` now gives a repeatable Thumb/string breadcrumb for the sleep path without requiring a Ghidra project.
+- The MSS image contains the tracker parameter string `<det2act> <det2free> <act2free> <stat2free> <exit2free> <sleep2free>` at the same local table as `staticBoundaryBox` and `presenceBoundaryBox` (`0x000076e4`, `0x00007b1e`, `0x00007c52`). This directly matches TI's people-tracking vocabulary and makes the TI `sleep2freeThre` lead highly relevant.
+- The `SleepData:` builder at `0x00000fee` fills a local record around `r4+0x74..0x8d`, then calls `0x00013654` with `r0 = caller_base + 0x2a68` and `r1 = sp+0x38`.
+- `0x00013654` is a rolling sleep-state reducer, not a simple UART send wrapper. It keeps a 15-sample window, promotes a 60-sample window, stores aggregate words at offsets `0xb0`, `0xb4`, and `0xb8`, then copies those three words to the caller output pointer.
+- Candidate semantics from the Thumb logic: `0xb0` is a count of recent state votes, `0xb4` is a 6-sample state vote result using values `0`, `1`, `3`, and `5`, and `0xb8` is a slower 60-sample/transition state. These are firmware-derived hypotheses and still need live `0x0159`/`0x0161`/`0x0176` correlation.
+- The simple wrappers remain useful anchors: `sleep_event` reads global offset `0xbaa` before sending `0x0176`; `sleep_state` reads global offset `0xb7c` before sending `0x0161`; `sleep_report_enable` reads global offset `0xb6c` before sending `0x0156`.
+- The stock MSS debug-log patch is especially useful for sleep mode because this path calls the gated `debug_log` wrapper at `0x000111e`. If the patched radar image reaches the sleep processing path, `0x0201 debug_log` frames should expose the existing `sleep tid:%d, count:%d, motion:%d, stage:%d` line.
+
 ## ESP32 Cloud Resource Mapping
 
 The ESP32 app has a direct dispatch table that maps Aqara cloud/app resource ids to radar UART SubIDs. This table is more reliable than the earlier ACK/resource literal adjacency because it is the table used by the cloud write dispatcher.
@@ -213,14 +223,14 @@ Flash test, 2026-06-07:
 - `sleep_data` (`0x0159`) records are 12 bytes in observed captures.
 - The decoder now names stock-firmware descriptor leads `0x0175` through `0x0180`, but `0x0175`, `0x0177`, and `0x0180` still need live UART/app validation before treating their payload formats as final.
 - Build-server artifact `write_handler_summary.tsv` and local copy `dumps/buildserver_reports/active_esp_write_handler_summary.tsv` summarize the current descriptor-handler evidence.
-- The radar MSS strings and Thumb windows confirm internal sleep-processing fields for target id, count, motion, and stage. The adjacent packet packer is not yet fully traced, so current decoder output still maps `target_id = byte 0` and candidate `count/motion/stage = bytes 9/10/11`, while preserving bytes 1-8 as unknown.
+- The radar MSS strings and Thumb windows confirm internal sleep-processing fields for target id, count, motion, and stage. The `0x13654` reducer now narrows part of the path to three copied aggregate words from offsets `0xb0`, `0xb4`, and `0xb8`, but the final `0x0159` payload byte order is not proven. Current decoder output still maps `target_id = byte 0` and candidate `count/motion/stage = bytes 9/10/11`, while preserving bytes 1-8 as unknown.
 - `people_counting` (`0x0155`) is still a candidate 7-byte record. The decoder exposes it as `id`, `value_a`, `value_b`, and `value_c` until the handler is confirmed.
 - `debug_log` (`0x0201`) BLOB1 strings are useful and should be kept enabled in test firmware builds when possible.
 
 ## Next RE Tasks
 
 - Load appimage 4 MSS into Ghidra/IDA as little-endian ARM/Thumb and anchor analysis on the strings above.
-- Trace callers of `SleepData:` and `sleep tid:%d, count:%d, motion:%d, stage:%d` through the non-`0x1c7c4` send path to confirm the 12-byte sleep record layout.
+- Trace `SleepData:` through `0x13654` and the caller's `base+0x2a68` output to confirm how the three aggregate words become the 12-byte `sleep_data` (`0x0159`) report.
 - Treat the exposed ESP UART0 as a flashing/recovery interface unless new wiring proves otherwise. Direct ROM `ets_printf` and `uart_tx_one_char` patches did not produce readable runtime logs on COM5.
 - The patched-stock sensor is now paired to the Aqara app. Use live app mode/settings changes to watch which resources cause writes to `sleep_report_enable`, `people_counting_report_enable`, `target_type_enable`, `dwell_time_enable`, and `walking_distance_enable`.
 - Aqara Home logcat now confirms app/cloud resource `4.22.700` as the live FP2 target-position stream. Use this as the app-side correlation point while sniffing radar UART `0x0117 location_track_data`.
