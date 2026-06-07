@@ -40,9 +40,10 @@ Based on captured boot logs, the initialization handshake follows this pattern:
     *   `monitor_mode` (`0x0105`)
     *   `installation_settings` (Reverse, Heights, etc.)
     *   `sensitivities` (Presence, Fall, Zone)
-    *   `work_mode` (`0x0116`)
+    *   `work_mode` (`0x0116`): live presence/live-map mode uses value `3`.
 4.  **Enable Reporting**: Crucially, the Host sends commands to enable data streams:
     *   **`location_report_enable` (`0x0112`)** -> Set to `TRUE` to start the stream of `0x0117` BLOBs.
+    *   `target_type_enable` (`0x0163`) is the app's AI Person Detection filter. In the ESPHome lab build it defaults to `FALSE`, because `TRUE` suppressed all target streaming in the current room during 2026-06-07 testing.
 5.  **Steady State**:
     *   ESP sends `ACK` for received data.
     *   Radar streams `location_track_data` (`0x0117`) approx 10-20Hz (fast).
@@ -385,7 +386,8 @@ The following table is derived from the firmware's `radar_attribute_table` and `
 | `0x0106` | `closing_setting`| `UINT8` | RW | "Wall Mounting Settings" Proximity Sensing Distance (0=Far, 1=Med, 2=Close) |
 | `0x0111` | `presence_det_sens` | `UINT8` | RW | "Wall Mounting Settings" Presence Detection Sensitivity (1=Low, 2=Med, 3=High) |
 | `0x0122` | `lr_reverse` | `UINT8` | RW | "Wall Mounting Settings" Left/Right Reverse (0=Consistent, 1=Opposite, 2=Auto) |
-| `0x0116` | `work_mode` | `UINT8` | RW | Work Mode (Raw Int) |
+| `0x0113` | `reset_absent_status` | `BOOL` | W/Rep | Candidate empty-room calibration/reset trigger. App capture showed host writing `TRUE` before the radar reported target count zero and later reported this SubID `TRUE`. Guarded: use only with an empty room until full setup capture confirms semantics. |
+| `0x0116` | `work_mode` | `UINT8` | RW | Work Mode (Raw Int). Live presence/live-map mode uses `3`; static handler accepts `3`, `5`, `8`, and `9`. |
 | `0x0127` | `ota_set_flag` | `BOOL` | W | OTA Update Flag (Triggers XMODEM) |
 | `0x0143` | `device_direction`| `?` | R | Device Direction (Installation) |
 
@@ -401,7 +403,7 @@ The following table is derived from the firmware's `radar_attribute_table` and `
 | `0x0152` | `detect_zone_type`| `UINT16` | RW | Zone Type (`Hi=ZoneID, Lo=Type`). 2=TV, 10=GreenPlant, 11=Leisure, 13=Dressing, 14=Closet, 15=Desk, 23=Shower, 36=Stairs. |
 | `0x0153` | `zone_cls_away`| `UINT16` | RW | Close/Away Enable (`Hi=ZoneID, Lo=Enable`). 1=On, 0=Off. |
 | `0x0160` | `del_false_tgt` | `UINT8` | W | Delete False Target |
-| `0x0163` | `tgt_type_en` | `BOOL` | RW | Target Type Detection Enable "AI Person Detection" "After enabled, FP2 employs AI to identify robot vacuums, pets, and mobile toys as interference objects, thereby reducing false alarms during presence detection. However, babies and children on the ground may also be mistakenly classified as such." |
+| `0x0163` | `tgt_type_en` | `BOOL` | RW | Target Type Detection Enable "AI Person Detection" "After enabled, FP2 employs AI to identify robot vacuums, pets, and mobile toys as interference objects, thereby reducing false alarms during presence detection. However, babies and children on the ground may also be mistakenly classified as such." Live ESPHome testing found `TRUE` can suppress all target streaming in the lab room, while `FALSE` restored `0x0117`, presence, people-counting, and posture reports. |
 | `0x0149` | `edge_auto_set` | `BLOB2` | RW | Edge Auto Setting |
 | `0x0125` | `inter_auto_set` | `BLOB2` | RW | Interference Auto Setting |
 

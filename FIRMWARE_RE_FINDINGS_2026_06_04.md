@@ -69,13 +69,13 @@ Direct write-dispatch table:
 | `4.69.85` | `0x0157` | `posture_report_enable` | `BOOL` | |
 | `4.70.85` | `0x0158` | `people_counting_report_enable` | `BOOL` | |
 | `4.71.85` | `0x0162` | `people_number_enable` | `BOOL` | |
-| `4.72.85` | `0x0163` | `target_type_enable` | `BOOL` | App label: AI Person Detection. |
+| `4.72.85` | `0x0163` | `target_type_enable` | `BOOL` | App label: AI Person Detection. Live ESPHome test showed enabling this can suppress all target streaming in the lab room, so the fork now defaults it off until the AI classifier flow is understood. |
 | `14.58.85` | `0x0168` | `sleep_zone_mount_position` | `UINT8` | |
 | `14.58.700` | `0x0169` | `sleep_zone_size` | `UINT32` | High 16 bits = width, low 16 bits = length. |
 | `14.57.85` | `0x0170` | `wall_corner_mount_position` | `UINT8` | |
 | `4.74.85` | `0x0172` | `dwell_time_enable` | `UINT8` | Direct dispatcher uses a byte path; descriptor-table type is `BOOL`. |
 | `4.75.85` | `0x0173` | `walking_distance_enable` | `UINT8` | Direct dispatcher uses a byte path; descriptor-table type is `BOOL`. |
-| `14.49.85` | `0x0116` | `work_mode` | `UINT8` | App label: Detection Mode. The write handler accepts mode values `3`, `5`, `8`, and `9`. |
+| `14.49.85` | `0x0116` | `work_mode` | `UINT8` | App label: Detection Mode. The write handler accepts mode values `3`, `5`, `8`, and `9`; live presence/live-map operation uses value `3`. |
 
 Secondary descriptor-table rows around the newer height/delay settings:
 
@@ -98,12 +98,14 @@ Practical corrections:
 
 The ESPHome fork now exposes a conservative probe surface for the app's Detection Mode setup and calibration workflow:
 
-- `work_mode` / `0x0116` can be written from Home Assistant through `fp2_set_work_mode` or the raw `fp2_write_attr_uint8` action. Static analysis says the stock handler accepts candidate values `3`, `5`, `8`, and `9`; live normal presence-mode boot reports have shown `3`. Fall and sleep mode value assignments still need app-driven capture.
-- `target_type_enable` / `0x0163` is exposed as `fp2_set_ai_target_filter`. The app labels the backing resource `4.72.85` as AI Person Detection, likely used to suppress non-human targets such as pets or robot vacuums.
+- `work_mode` / `0x0116` can be written from Home Assistant through `fp2_set_work_mode` or the raw `fp2_write_attr_uint8` action. Static analysis says the stock handler accepts candidate values `3`, `5`, `8`, and `9`; live normal presence/live-map mode is value `3`. Fall and sleep mode value assignments still need app-driven capture.
+- `target_type_enable` / `0x0163` is exposed as `fp2_set_ai_target_filter`. The app labels the backing resource `4.72.85` as AI Person Detection, likely used to suppress non-human targets such as pets or robot vacuums. Live ESPHome test on 2026-06-07 showed `true` can suppress all location streaming in the lab room; `false` restored `location_track_data`, presence, people count, and posture reports.
+- `reset_absent_status` / `0x0113` is the current strongest empty-room calibration candidate. App-side capture showed the stock ESP writing `TRUE` immediately before the radar reported target count zero and then reported `reset_absent_status TRUE`. The ESPHome fork exposes this as the diagnostic button/action `FP2 Calibrate Empty Room`, but it should only be used with an actually empty room until a full Aqara setup capture confirms the calibration semantics.
 - `radar_calibration_result` / `0x0305` is readable through `fp2_read_mode_calibration_config` and `fp2_read_attr`. This is confirmed by the radar MSS string `query radar calibration status:%d`.
-- The actual "start unoccupied calibration" trigger is not confirmed. Do not publish a named calibration-start action until a live app setup capture or function-level firmware trace identifies the write. Use the raw typed actions only for controlled experiments.
+- The exact "start unoccupied calibration" semantics are not fully confirmed. Treat `0x0113` as a guarded calibration/reset candidate, and correlate it with app setup captures plus `0x0305`/status reports.
 - The read bundle includes the current mode, monitor direction, AI filter, calibration result, presence/fall toggles, fall delay candidates, sleep report toggles, sleep zone dimensions, bed height, overhead height, wall/corner position, and sleep state/event reports so app mode changes can be correlated quickly.
 - Live ESPHome test on 2026-06-07: host-initiated standard `READ` frames to this cluster, including `0x0305`, timed out one-by-one even after queue pacing was added. Writes to known settings still ACK. Treat `0x0305` as a radar-side report/status function lead rather than a proven host-readable attribute until the app setup/calibration flow is captured.
+- Live ESPHome reset test on 2026-06-07: with `work_mode=3`, `location_report_enable=true`, and `target_type_enable=false`, the radar ACKed the full init burst and streamed `0x0117 location_track_data` with 1-2 targets. Home Assistant received `Global Presence ON`, `Global Motion`, `Realtime People Number`, `Realtime People Counting`, and `Target Posture` updates.
 
 ## ESP32 Handler Names
 
