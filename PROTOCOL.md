@@ -108,8 +108,18 @@ Live H5 push resources seen in Aqara Home logcat:
 
 | Resource id | App bridge event | Value shape | Meaning |
 | :--- | :--- | :--- | :--- |
-| `4.22.700` | `handleWSPushPositionData` | 20-slot JSON target array with `rangeId`, `x`, `y`, `targetType`, `id`, and `state` | App/cloud live FP2 position stream. This is the app-side counterpart to the live target view; exact coordinate conversion from UART `0x0117` still needs a simultaneous UART/app capture. |
-| `13.27.85` | `handleWSPushPositionData` | Scalar in the first live-router capture | Role unknown; observed values were `6` and `7` with `source` containing `0.trg=0`. |
+| `4.22.700` | `handleWSPushPositionData` | 20-slot JSON target array with `rangeId`, `x`, `y`, `targetType`, `id`, and `state` | App/cloud live FP2 position stream. Confirmed in normal live view and Zone Management; 2026-06-07 captures saw active target ids `1`, `3`, `4`, `5`, and `9`. Exact coordinate conversion from UART `0x0117` still needs a simultaneous UART/app capture. |
+| `13.27.85` | `handleWSPushPositionData` | Scalar event values `6` and `7` with `source` containing `0.trg=0` | Likely motion/event scalar rather than coordinate data. M100 `bc2al.conf` maps FP2 `13.27.85` to `3.161.33002.1`. |
+
+Additional app/H5 reads observed while the FP2 pages were open:
+
+| Resource / endpoint | App bridge path | Meaning |
+| :--- | :--- | :--- |
+| `0.62.85`, `0.63.85` | `/res/statistics/log`, `aggrTypes` `[6]` | Polled by the live-view cards about every 10 seconds; likely backs presence duration / visits / distance statistics. Exact card mapping is not decoded yet. |
+| `13.35.85` | `/res/query/by/resourceId` | Queried by Zone Management after `/devex/radar/range/background/query`; also appears near `4.22.700` in the M100 advanced motion resource run. |
+| `3.51.85` | `/res/query/by/resourceId` | Queried by Zone Management; whole-device occupancy. |
+| `14.49.85` | `/res/query/by/resourceId` and `subscribeSubDevices` | Work mode / detection mode. |
+| `4.22.85` | `/res/write` | Written as `1` while `Detection Zone 2` is in edit mode. Likely edit/session/operation state or zone-related state; exact semantics need save/cancel captures. |
 
 The app detail view also labels several resources:
 
@@ -126,6 +136,14 @@ The app detail view also labels several resources:
 | `8.0.2096` | Identify / Find device. |
 
 See `APP_LIVE_CAPTURE_FINDINGS_2026_06_05.md` for the full live capture notes and open conflicts with earlier candidate cloud-resource mappings.
+
+M100 bridge cross-check:
+
+* M100 `bc2al.conf` has direct `lumi.motion.agl001` mappings for `0.4.85 -> 4.154.32989.1`, `3.51.85 -> 2.160.33000.1`, `13.27.85 -> 3.161.33002.1`, and `4.31.85 -> 5.167.33018.1`.
+* The newer M100 backup `ha_master` has an advanced motion block containing `4.22.700`, `4.41.705`, `13.27.85`, `3.51.85`, `13.35.85`, `0.62.85`, and `0.63.85`.
+* M100 active/backup `ha_master` also contains `4.22.85`, and `bc2al.conf` maps it in other device/model blocks, but the direct `lumi.motion.agl001` M100 block does not include `4.22.85`. The current FP2 evidence for this resource is therefore the live app edit-mode write.
+* The same M100 block contains `char_MotionReportCoordinateData (char_str)`, making `4.22.700` a bounded candidate for that characteristic, but no direct pointer proves the pairing yet.
+* M100's zone-indexing function at VA `0xb9704` maps zone-base resources to candidate characteristics: `1.162.85` zone move detected, `4.41.705` occupancy detected zone, `13.1.700` zone type, `8.0.2207` approach enable, `4.211.85` human-detect delay, `4.58.701` people schedule zone, `13.21.703` counting schedule zone, and `13.117.85` wondering-time/count zone.
 
 ### 2.4 FP2 Cloud TCP Layer **[PARTIAL]**
 
@@ -146,6 +164,9 @@ Observed readable topic strings:
 Payload shape lead:
 
 * First two payload bytes are a big-endian length equal to `tcp.len - 2` in 175/178 data-bearing rows from the first router capture.
+* 2026-06-07 live-view refresh: 402/402 data-bearing rows matched the same length rule. Topic counts were `lumi/func/res/report` 159, `lumi/res/report/attr` 36, `lumi/dev/heartbeat` 4, and `lumi/gw/res/write` 2.
+* 2026-06-07 Zone Management capture: 264/264 rows matched the length rule. Topic counts were `lumi/func/res/report` 119, `lumi/res/report/attr` 8, `lumi/dev/heartbeat` 3, and `lumi/gw/res/write` 2.
+* 2026-06-07 Zone 2 edit-mode capture: 260/260 rows matched the length rule. Topic counts were `lumi/func/res/report` 119, `lumi/res/report/attr` 6, `lumi/dev/heartbeat` 3, and `lumi/gw/res/write` 2. Aqara Home logcat showed two app writes of `4.22.85=1` while in edit mode.
 * Common bytes immediately after the length: `48 01 00 00`, `68 45 00 00`, `48 02 ff ff`, and `68 45 ff ff`.
 * FP2-to-cloud topic paths are readable slash strings. Cloud-to-FP2 paths were observed as compact segmented strings, e.g. `lumi` + length-prefixed `gw`, `res`, `write`, normalized by `tools/fp2_extract_cloud_topics.py`.
 * The remaining payload body appears encrypted or binary-packed; treat topic/header extraction as a correlation aid, not as a full decoder yet.
@@ -255,7 +276,7 @@ Inside the BLOB:
 
 *Note: All multi-byte fields use Big Endian (Network Byte Order) encoding.*
 
-App correlation note: Aqara Home live-view logcat exposes app/cloud resource `4.22.700` as a fixed 20-slot target array with `rangeId`, `x`, `y`, `targetType`, `id`, and `state`. In the 2026-06-05 router capture, target ids `0` and `3` were active with app-coordinate ranges `x=165..297, y=129..143` and `x=120..286, y=123..157`. These app coordinates are not yet proven to be the raw `0x0117` coordinates; capture `0x0117` UART and app logcat at the same time before defining a conversion.
+App correlation note: Aqara Home live-view logcat exposes app/cloud resource `4.22.700` as a fixed 20-slot target array with `rangeId`, `x`, `y`, `targetType`, `id`, and `state`. In the 2026-06-05 router capture, target ids `0` and `3` were active with app-coordinate ranges `x=165..297, y=129..143` and `x=120..286, y=123..157`. In the 2026-06-07 live-view capture, target ids `1`, `3`, `5`, and `9` were active with app-coordinate ranges `x=86..349, y=38..369`; the Zone Management capture saw ids `1`, `3`, `4`, and `5` active. These app coordinates are not yet proven to be the raw `0x0117` coordinates; capture `0x0117` UART and app logcat at the same time before defining a conversion.
 
 #### 4.2.5 Sleep Data (0x0159) **[VERIFIED]**
 The payload contains sleep tracking information per target/zone. Captures show 12-byte records. Firmware strings from the radar MSS image expose the logical fields `tid`, `count`, `motion`, and `stage`; the internal processing window near the `SleepData:` and `sleep tid:%d, count:%d, motion:%d, stage:%d` strings also shows heart/breath counters (`HR/HC/BR/BC`). The exact packer for the UART `0x0159` record is still under investigation.

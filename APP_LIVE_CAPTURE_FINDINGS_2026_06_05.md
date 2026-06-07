@@ -130,6 +130,110 @@ Interpretation:
 - App coordinates are not yet proven to be raw radar UART coordinates. They need to be correlated against simultaneous `0x0117 location_track_data` UART sniffing.
 - `targetType` is always `0` in this capture, so AI target classification still needs a capture with the app's AI/person-detection feature toggled and a suitable moving object.
 
+## Live Capture Refresh - 2026-06-07
+
+The paired "Living Room Sensor" was reachable again at `10.88.0.162` / `54:ef:44:62:de:8c`, subject `lumi1.54ef4462de8c`. The Note 8 app was on `10.88.0.50:5555`.
+
+Artifacts:
+
+- `artifacts/live-capture-20260607-fresh-idle`
+- `artifacts/live-capture-20260607-living-room-liveview`
+- `artifacts/live-capture-20260607-zone-management`
+
+Idle capture:
+
+| Field | Observation |
+| --- | --- |
+| Router PCAP | `br0-20260607-012856-120s.pcap`, SHA256 `a27eff87b2dc2180e21d2105883f4edfadbc6c0b484f76d467274148f50f418f` |
+| TCP payload rows | 12 |
+| Length check | 12/12 rows had first two bytes equal to `tcp.len - 2`. |
+| Topics | `lumi/dev/heartbeat` 4, `lumi/res/report/attr` 2. |
+| H5 position pushes | 0 decoded events. |
+
+Living-room live-view capture:
+
+| Field | Observation |
+| --- | --- |
+| Router PCAP | `br0-20260607-013633-120s.pcap`, SHA256 `f43856df4e4f21bcc59b44598f3d1255f6e54d17995a957130805698f21710bd` |
+| TCP payload rows | 402 |
+| Length check | 402/402 rows had first two bytes equal to `tcp.len - 2`. |
+| Header counts | `48 01 00 00`: 199, `68 45 00 00`: 199, `48 02 ff ff`: 2, `68 45 ff ff`: 2. |
+| Cloud topics | `lumi/func/res/report` 159, `lumi/res/report/attr` 36, `lumi/dev/heartbeat` 4, `lumi/gw/res/write` 2. |
+| H5 position events | 197 decoded events, 0 parse errors. |
+| H5 attrs | `4.22.700`: 195 events, `13.27.85`: 2 scalar events. |
+
+Live-view `4.22.700` target summary:
+
+| Target id | Active frames | App `x` range | App `y` range | `rangeId` values | `targetType` values |
+| ---: | ---: | --- | --- | --- | --- |
+| `1` | 195 | `86..299` | `52..217` | `0`: 191, `1`: 4 | `0` |
+| `3` | 195 | `106..347` | `38..320` | `0`: 194, `1`: 1 | `0` |
+| `5` | 125 | `285..349` | `250..342` | `0`: 125 | `0` |
+| `9` | 19 | `286..335` | `295..369` | `0`: 19 | `0` |
+
+The active-target histogram was 2 targets for 51 frames and 3 targets for 144 frames. The scalar `13.27.85` events were:
+
+| App time | Resource | Source | Value |
+| --- | --- | --- | --- |
+| `06-07 01:36:25.747` | `13.27.85` | `10,,1780788986220,0.trg=0,,` | `6` |
+| `06-07 01:37:04.693` | `13.27.85` | `10,,1780789025078,0.trg=0,,` | `7` |
+
+The live-view H5 page also polled `/res/statistics/log` about every 10 seconds with `resourceIds` `["0.62.85","0.63.85"]` and `aggrTypes` `[6]`. These likely back the visible cards such as presence duration / visits / distance, but exact card-to-resource mapping still needs response correlation.
+
+Zone-management capture:
+
+| Field | Observation |
+| --- | --- |
+| Router PCAP | `br0-20260607-014225-90s.pcap`, SHA256 `e6084e7da4348bdb50c1510a7bdf369ea515e8cdb2a87c7df9905177b42e4c98` |
+| Screen | `note8_zone_screen.png` showed Zone Management with `Detection Zone 1`, `Detection Zone 2`, `Edge`, and several `exits and entrances` stickers. |
+| TCP payload rows | 264 |
+| Length check | 264/264 rows had first two bytes equal to `tcp.len - 2`. |
+| Header counts | `48 01 00 00`: 130, `68 45 00 00`: 130, `48 02 ff ff`: 2, `68 45 ff ff`: 2. |
+| Cloud topics | `lumi/func/res/report` 119, `lumi/res/report/attr` 8, `lumi/dev/heartbeat` 3, `lumi/gw/res/write` 2. |
+| H5 position events | 152 decoded `4.22.700` events, all with 4 active targets. |
+
+The Zone Management page did these app-side reads/writes when opened:
+
+| App bridge call | Resource / endpoint | Notes |
+| --- | --- | --- |
+| `queryTransfer` GET | `/devex/radar/range/background/query` | Likely background/floorplan/radar range data for the editable zone map. |
+| `queryTransfer` POST | `/res/query/by/resourceId`, option `13.35.85` | Zone-page resource read; M100 `ha_master` also contains `13.35.85` near the coordinate-data run. |
+| `subscribeSubDevices` | prop `14.49.85` | Work-mode subscription; failed locally with `Client id is empty`, then the page issued a direct query. |
+| `queryTransfer` POST | `/res/query/by/resourceId`, option `14.49.85` | Work mode / detection mode. |
+| `queryTransfer` POST | `/res/query/by/resourceId`, option `3.51.85` | Whole-device occupancy; M100 maps this FP2 resource to `2.160.33000.1`. |
+| `queryTransfer` POST | `/res/write` x2 | Page-open writes were observed in logcat, but the compact cloud write body is not decoded yet. |
+
+Zone edit-mode long-press capture:
+
+| Field | Observation |
+| --- | --- |
+| Artifact path | `artifacts/live-capture-20260607-zone-edit-longpress-router` |
+| Router PCAP | `br0-20260607-zone-edit-longpress-90s.pcap`, SHA256 `6cce4742f886298571e8fe3f0b0758caaba5a3624a81a95debb9ab6c956c2235` |
+| Screen state | The app was in `Detection Zone 2` edit mode. The accidental shape edit was discarded with the app's unsaved-change `Exit` prompt; final screenshot returned to Zone Management. |
+| TCP payload rows | 260 |
+| Length check | 260/260 rows had first two bytes equal to `tcp.len - 2`. |
+| Header counts | `48 01 00 00`: 128, `68 45 00 00`: 128, `48 02 ff ff`: 2, `68 45 ff ff`: 2. |
+| Cloud topics | `lumi/func/res/report` 119, `lumi/res/report/attr` 6, `lumi/dev/heartbeat` 3, `lumi/gw/res/write` 2. |
+| H5 position events | 126 decoded `4.22.700` events, all with 4 active targets. |
+| Edit-mode writes | `/res/write` wrote `{"4.22.85":1}` twice, at `06-07 01:56:50.890` and `06-07 01:57:50.893`. |
+
+Edit-mode `4.22.700` target summary:
+
+| Target id | Active frames | App `x` | App `y` | `rangeId` values | `targetType` values |
+| ---: | ---: | ---: | ---: | --- | --- |
+| `1` | 126 | `294` | `106` | `0`: 126 | `0` |
+| `3` | 126 | `279` | `254` | `0`: 126 | `0` |
+| `4` | 126 | `293` | `180` | `0`: 126 | `0` |
+| `5` | 126 | `276` | `295` | `0`: 126 | `0` |
+
+Interpretation:
+
+- `4.22.700` is now confirmed across normal live view and Zone Management as the live app/cloud target stream.
+- `13.27.85` behaves like an event/trigger scalar, not a coordinate stream. The M100 bridge maps it to `3.161.33002.1`, so it is likely a motion/event trait.
+- `3.51.85` is reinforced as whole-device occupancy by both app cache and M100 bridge mapping.
+- `13.35.85` is a new zone-page lead. It sits near `4.22.700` in the M100 advanced motion resource run and should be probed while opening/editing zone background/range state.
+- `4.22.85` is a new FP2 app-side zone-edit lead. It is written with value `1` while `Detection Zone 2` is in edit mode, likely as an edit/session/operation flag or zone-related state. M100 `bc2al.conf` contains `4.22.85` mappings in other model blocks and `ha_master` contains the string in motion/occupancy areas, but the direct `lumi.motion.agl001` M100 block does not map it. Keep this as live-app evidence until a save/cancel/write capture resolves the semantics.
+
 ## Packed App Notes
 
 The Play Store app is SecNeo packed. Static JADX output primarily shows the wrapper (`com.secneo.apkwrapper`) and bootstrap/route metadata, while live stack traces mention real classes that are missing from static decompilation, including:
@@ -185,6 +289,46 @@ Observed endpoint cache for the paired FP2:
 
 Open point: endpoints `202` and `203` appeared in `EndpointArrayDynamic` but had no rows in `device_card_trait` during this capture. Given the zone-management UI text (`Edge`, `exits and entrances`) and the known UART attributes for edge/enter-exit maps, these are strong candidates for dynamic virtual endpoints related to edge or entrance/exit zones. They need a mode/zone-change capture to confirm.
 
+## M100 Firmware Cross-Check
+
+The completed Aqara Hub M100 dump adds an independent bridge/cloud reference for FP2 resource naming. Both active and backup rootfs images contain a `lumi.motion.agl001` block in `etc/bc2al.conf`.
+
+Direct FP2 mappings from M100 `bc2al.conf`:
+
+| FP2 resource | M100 mapped id | Current interpretation |
+| --- | --- | --- |
+| `0.4.85` | `4.154.32989.1` | Illuminance. |
+| `3.51.85` | `2.160.33000.1` | Whole-device occupancy. |
+| `13.27.85` | `3.161.33002.1` | Motion/event scalar; observed as live H5 values `6` and `7`. |
+| `4.31.85` | `5.167.33018.1` | Still needs FP2 app/firmware correlation. |
+| `8.0.2045` | `0.128.32901.1` | Root descriptor. |
+| `8.0.8101` | `0.130.32913.1` | Root metadata/name trait. |
+| `8.0.8102` | `0.130.33016.1` | Root metadata/name trait. |
+| `8.0.8108` | `0.130.32914.1` | Root metadata/name trait. |
+
+Important non-direct M100 clue:
+
+- M100 active/backup `ha_master` also contains `4.22.85` in motion/occupancy string areas, and `bc2al.conf` maps `4.22.85` in other device/model blocks. The `lumi.motion.agl001` block itself does not include `4.22.85`, so the 2026-06-07 FP2 edit-mode app write should be treated as the primary evidence for this resource.
+
+The newer M100 backup `ha_master` contains an advanced motion descriptor block with FP2-relevant resources including `4.22.700`, `4.41.705`, `13.27.85`, and `3.51.85`, plus descriptors such as `char_MotionReportCoordinateData`, `char_MotionRegionConfigBlock`, `char_MotionHumanDetectZone`, `char_MotionDetectZoneSetting`, `char_MotionMonitorWalkingDistance`, and fall/posture descriptors.
+
+High-confidence M100 zone-base map from the zone-indexing function at VA `0xb9704`:
+
+| Resource | Candidate characteristic | Evidence |
+| --- | --- | --- |
+| `1.162.85` | `char_MotionZoneMoveDetected` | Resource run aligns with an 8-entry characteristic pointer array consumed by the zone-indexing function. |
+| `4.41.705` | `char_OccupancyDetectedZone` | Same zone-indexing function. |
+| `13.1.700` | `char_MotionDetectZoneType` | Same zone-indexing function. |
+| `8.0.2207` | `char_MotionDetectZoneApproachEnable` | Same zone-indexing function. |
+| `4.211.85` | `char_MotionDetectZoneHumanDetectDelay` | Same zone-indexing function. |
+| `4.58.701` | `char_MotionMonitorSchedulePeopleZone` | Same zone-indexing function. |
+| `13.21.703` | `char_MotionMonitorScheduleCountingZone` | Same zone-indexing function. |
+| `13.117.85` | `char_MotionMonitorWonderingTimeCountZone` | Same zone-indexing function. |
+
+Bounded but useful candidate:
+
+- `4.22.700` is still the best app/cloud candidate for `char_MotionReportCoordinateData (char_str)`: FP2 app logs prove it is the live target-coordinate stream, and M100 contains the matching descriptor in the same advanced motion block. The M100 binary does not contain a direct pointer from `4.22.700` to that descriptor, so keep this as bounded rather than proven.
+
 ## FP2 Settings Resources From The App View
 
 The app detail view labels several Aqara resource ids directly:
@@ -224,6 +368,7 @@ The live FP2 page exposed these user-facing values and pages:
 ## Next Experiments
 
 - Change detection modes in the app while capturing logcat, pcap, and before/after app databases. The highest-value resource is `14.49.85`; mode changes should explain endpoint `202` and `203`.
+- Long-press/edit an existing zone and create/cancel/save a new zone while capturing logcat and PCAP. Target the zone-page reads `13.35.85`, `3.51.85`, edit-mode writes to `4.22.85`, the background endpoint `/devex/radar/range/background/query`, and any `/res/write` payloads.
 - Open `flow-setting`, `view-set`, `reset-nopeople`, and fall/sleep settings while capturing app logs. These paths should exercise `CommonWebActionHelper.subscribeProps` and the hidden WebSocket layer.
 - Specifically change the fall detection delay UI and compare before/after values for `14.59.85`, `4.41.705`, `0x0179`, and `0x0180`.
 - If hidden sleep/fall controls expose `0.121.85` or `1.10.85`, capture those too; static handler summaries suggest 1-byte radar writes despite cloud descriptor rows marked `UINT16`.

@@ -11,7 +11,7 @@ See [PROTOCOL.md](PROTOCOL.md) for a description of the protocol over the UART l
 Additional notes from stock firmware/app work:
 
 * [FIRMWARE_RE_FINDINGS_2026_06_04.md](FIRMWARE_RE_FINDINGS_2026_06_04.md) - ESP32 flash dump, radar firmware, and stock patch findings.
-* [APP_LIVE_CAPTURE_FINDINGS_2026_06_05.md](APP_LIVE_CAPTURE_FINDINGS_2026_06_05.md) - Aqara app live-pairing endpoint/resource findings.
+* [APP_LIVE_CAPTURE_FINDINGS_2026_06_05.md](APP_LIVE_CAPTURE_FINDINGS_2026_06_05.md) - Aqara app live-pairing endpoint/resource findings, 2026-06-07 live/zone captures, and M100 bridge cross-checks.
 
 ## Scripts
 
