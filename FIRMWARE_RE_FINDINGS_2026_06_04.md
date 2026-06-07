@@ -185,6 +185,16 @@ Important flashing caveat:
 - The `MSTR` per-core metadata/header words are preserved in the generated full `mcu_ota` artifact. Current tests show those words are not plain CRC32, MD5/SHA prefixes, or common CRC64 variants. Treat the full partition image as experimental until the TI metadata algorithm or loader behavior is confirmed.
 - If testing the patch, sniff the radar UART (`GPIO19`/`GPIO18`, `890000` baud) and decode `0x0201 debug_log` frames. COM5/UART0 should still be treated as download/recovery only.
 
+Flash test, 2026-06-07:
+
+- Device was manually placed in ESP32 download mode on COM5.
+- On-device MSS RPRC window at flash `0x5d3080`, length `0x33668`, matched the source RPRC byte-for-byte before flashing.
+- Wrote a sector-aligned appimage-4 slice at flash `0x5d3000`, length `0xaa000`, from local artifact `artifacts/stock_patch/appimage4_0x5d3000_len_0xaa000_printf_to_debug_forced.bin`.
+- Esptool erased `0x005d3000..0x0067cfff`, wrote `696320` bytes, and verified the written data hash.
+- Independent readback of flash `0x5d3080..0x6066e7` matched patched RPRC SHA-256 `05b1e7e80ed697f3d0181e5aa034a0b57e58c15af37b7ca5b9a4e39456cb125f`.
+- Rollback slice saved locally as `artifacts/stock_patch/appimage4_0x5d3000_len_0xaa000_original_rollback.bin`.
+- Runtime behavior still needs validation after leaving manual download mode and sniffing the radar UART for `0x0201 debug_log` frames.
+
 ## Current Decoder Implications
 
 - `sleep_data` (`0x0159`) records are 12 bytes in observed captures.
