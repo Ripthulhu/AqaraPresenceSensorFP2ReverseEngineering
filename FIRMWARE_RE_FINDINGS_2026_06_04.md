@@ -94,6 +94,17 @@ Practical corrections:
 - The descriptor `packed_high16` type appears to describe the cloud/resource value shape. Some handlers parse a richer cloud value and then send a simpler radar UART value, so do not blindly copy descriptor types into the UART decoder without a capture.
 - Descriptor write-handler strings are heuristic evidence. Many older descriptor rows show callback/log-name adjacency shifts, while the tail rows for `1.10.85`, `1.11.85`, `14.59.85`, and `4.41.705` line up cleanly with their static handler strings and common radar-write calls.
 
+## ESPHome Mode and Calibration Probing
+
+The ESPHome fork now exposes a conservative probe surface for the app's Detection Mode setup and calibration workflow:
+
+- `work_mode` / `0x0116` can be written from Home Assistant through `fp2_set_work_mode` or the raw `fp2_write_attr_uint8` action. Static analysis says the stock handler accepts candidate values `3`, `5`, `8`, and `9`; live normal presence-mode boot reports have shown `3`. Fall and sleep mode value assignments still need app-driven capture.
+- `target_type_enable` / `0x0163` is exposed as `fp2_set_ai_target_filter`. The app labels the backing resource `4.72.85` as AI Person Detection, likely used to suppress non-human targets such as pets or robot vacuums.
+- `radar_calibration_result` / `0x0305` is readable through `fp2_read_mode_calibration_config` and `fp2_read_attr`. This is confirmed by the radar MSS string `query radar calibration status:%d`.
+- The actual "start unoccupied calibration" trigger is not confirmed. Do not publish a named calibration-start action until a live app setup capture or function-level firmware trace identifies the write. Use the raw typed actions only for controlled experiments.
+- The read bundle includes the current mode, monitor direction, AI filter, calibration result, presence/fall toggles, fall delay candidates, sleep report toggles, sleep zone dimensions, bed height, overhead height, wall/corner position, and sleep state/event reports so app mode changes can be correlated quickly.
+- Live ESPHome test on 2026-06-07: host-initiated standard `READ` frames to this cluster, including `0x0305`, timed out one-by-one even after queue pacing was added. Writes to known settings still ACK. Treat `0x0305` as a radar-side report/status function lead rather than a proven host-readable attribute until the app setup/calibration flow is captured.
+
 ## ESP32 Handler Names
 
 The ESP32 firmware contains cloud handler names that line up with the UART protocol table:
