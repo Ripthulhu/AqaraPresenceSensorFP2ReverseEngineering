@@ -477,6 +477,9 @@ To achieve full control, the following areas require further reverse engineering
     *   `radar_rxsub_alt_cloud_X`: Handles **incoming Cloud/App** commands. Writes to UART to configure Radar.
 *   **Special Data Handling**:
     *   `sleep_zone_size` (`0x0169`): The `UINT32` value is split. High 16 bits = `bedWidth`, Low 16 bits = `bedLength`.
+        *   Live ESPHome replay on 2026-06-07 confirmed the stock sleep capture's `120 x 180` setup value is sent as `01 69 02 00 78 00 b4` and ACKed by the radar.
+        *   Minimal app-like sleep setup sequence confirmed on the live sensor: write `sleep_report_enable=TRUE`, write blank `zone_detect_setting` (`0x0114`, BLOB2 length 41), write `work_mode=9`, write blank `zone_detect_setting` again, write `location_report_enable=TRUE`, write `sleep_zone_size`, then write `sleep_zone_mount_position=1`. The radar reported `work_mode=9` and ACKed the final mount write.
+        *   No `sleep_data`/`sleep_presence` reports were observed during the replay unless the radar had a qualifying target in the configured sleep rectangle; stock capture shows those reports begin after `sleep_zone_size` when a target is present.
     *   `zone_people_number` (ID Unknown, inferred): Value `0xZZNN` -> `ZZ`=ZoneID, `NN`=Count.
     *   Stock ESP32 descriptor records add leads for `0x0175`-`0x0180`. Treat `0x0175`, `0x0177`, and `0x0180` as descriptor-confirmed but live-payload-unconfirmed until app-toggle or radar UART captures prove the final wire format.
 
