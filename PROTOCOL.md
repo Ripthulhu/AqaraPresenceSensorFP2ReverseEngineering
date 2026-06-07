@@ -282,6 +282,8 @@ App correlation note: Aqara Home live-view logcat exposes app/cloud resource `4.
 #### 4.2.5 Sleep Data (0x0159) **[VERIFIED]**
 The payload contains sleep tracking information per target/zone. Captures show 12-byte records. Firmware strings from the radar MSS image expose the logical fields `tid`, `count`, `motion`, and `stage`; the internal processing window near the `SleepData:` and `sleep tid:%d, count:%d, motion:%d, stage:%d` strings also shows heart/breath counters (`HR/HC/BR/BC`). The exact packer for the UART `0x0159` record is still under investigation.
 
+Live stock-sensor UART capture on 2026-06-07 used COM4 on GPIO19 (`ESP->Radar`) and COM7 on GPIO18 (`Radar->ESP`) at 890000 baud. The untouched sensor was already in sleep reporting mode and emitted repeated `0x0159` records such as `0f 00 00 46 00 32 0b 00 32 06 05 02`, while the ESP ACKed each report. In that capture byte 0 stayed at target id `15`, bytes 3/5/8 were stable `0x46/0x32/0x32`, byte 6 drifted `0x09..0x11`, and bytes 9-11 matched the current candidate `count/motion/stage` mapping.
+
 | Offset | Field | Type | Description |
 | :--- | :--- | :--- | :--- |
 | 0 | `TargetID` | `u8` | Tracked Target ID |

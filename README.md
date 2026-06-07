@@ -25,6 +25,7 @@ This repo contains a few useful scripts:
 * `tools/fp2_mss_sleep_trace_summary.py` - Summarizes MSS sleep/tracker string xrefs, the `SleepData:` local record builder, and the rolling sleep state-machine stores around `0x13654`.
 * `tools/fp2_extract_app_position_pushes.py` - Decodes Aqara Home logcat `handleWSPushPositionData` H5 bridge pushes, including the live `4.22.700` target array.
 * `tools/fp2_extract_cloud_topics.py` - Summarizes readable `lumi/...` topic strings and outer length/header hints from FP2 TCP payload TSV exported by tshark.
+* `tools/fp2_windows_uart_capture.py` - Captures Windows COM-port bench wiring into raw per-port dumps and `decoder` input. The default mapping is COM4=GPIO19 ESP->radar, COM7=GPIO18 radar->ESP, COM5=ESP32 UART0.
 
 uv run --project decoder python -m decoder decode <filename> --exclude location_track_data,radar_sw_version
 

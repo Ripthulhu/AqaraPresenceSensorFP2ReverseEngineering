@@ -226,6 +226,7 @@ Flash test, 2026-06-07:
 - The decoder now names stock-firmware descriptor leads `0x0175` through `0x0180`, but `0x0175`, `0x0177`, and `0x0180` still need live UART/app validation before treating their payload formats as final.
 - Build-server artifact `write_handler_summary.tsv` and local copy `dumps/buildserver_reports/active_esp_write_handler_summary.tsv` summarize the current descriptor-handler evidence.
 - The radar MSS strings and Thumb windows confirm internal sleep-processing fields for target id, count, motion, and stage. The `0x13654` reducer now narrows part of the path to three copied aggregate words from offsets `0xb0`, `0xb4`, and `0xb8`, but the final `0x0159` payload byte order is not proven. Current decoder output still maps `target_id = byte 0` and candidate `count/motion/stage = bytes 9/10/11`, while preserving bytes 1-8 as unknown.
+- Stock second-FP2 UART capture on 2026-06-07 (`artifacts/stock_fp2_uart_20260607_181315`) confirmed an untouched unit streaming sleep data in-place: radar software version `99`, repeated `sleep_data` target id `15`, stable bytes `0x46/0x32/0x32` at positions 3/5/8, drifting byte 6 (`0x09..0x11`), and candidate `count/motion/stage` bytes 9-11. COM5 on ESP32 UART0 remained quiet at 115200 during the 90-second capture.
 - `people_counting` (`0x0155`) is still a candidate 7-byte record. The decoder exposes it as `id`, `value_a`, `value_b`, and `value_c` until the handler is confirmed.
 - `debug_log` (`0x0201`) BLOB1 strings are useful and should be kept enabled in test firmware builds when possible.
 
